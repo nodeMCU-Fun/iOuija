@@ -1,19 +1,29 @@
+--iOuija.lua
+--Receives annonymous messages from a web page 
+--and displays them on an OLED screen.
+--Cobbled together by Tim Connolly
+--
+
+print("**iOuija.lua STARTED**")
+
+--CUSTOMIZE THESE TO YOUR SYSTEM
+routerPort=	--Router Port Number for NodeMCU
+routerUsername = ""	--Router Username
+routerPassword = ""	--Router Password
 
 
 --CONSTANTS & VARIABLES
 sda = 1 		-- OLED SDA Pin 1=D1
 scl = 2 		-- OLED SCL Pin 2=D2
-i=0				-- MULTI-USE COUNTER
-vars=" "		-- ARGUMENTS FROM WEB-PAGE
-onboardLED = 4	-- PIN NUMBER OF nodeMCU DEV BOARD LED  Pin 4=D4
-routerUsername = " "	--Router Username
-routerPassword = " "	--Router Password
+i = 0			-- MULTI-USE COUNTER
+vars = " "		-- RAW ARGUMENTS SENT FROM WEB-PAGE
+totmsg = 0		-- COUNT OF MESSAGES RECEIVED 
 
---CREATE OLED SCREEN BUFFER
-OLEDlines={}
-for j=1,4 do			--FOUR LINES FOR TEXT PRE-SET TO " "
+OLEDlines={}	-- OLED SCREEN BUFFER  (FOUR LINES FOR TEXT PRE-SET TO " ")
+for j=1,4 do	
 	OLEDlines[j]=" "
 end
+
 
 --INITIALIZE THE OLED DISPLAY
 function init_OLED(sda,scl) --Set up the u8glib lib
@@ -26,15 +36,22 @@ function init_OLED(sda,scl) --Set up the u8glib lib
      disp:setFontPosTop()
 end
 
---WRITE DATA TO OLED DISPLAY
-function write_OLED() -- Write Display
-
-	--+= TOTAL MESSAGE COUNT  (Persistent between sessions)
+--TRACK TOTAL NUMBER OF MESSAGES  (Persistent between sessions)
+function totalMessages()
 	file.open("TotMsg.txt")
 	totmsg=file.readline()
-	totmsg=totmsg+1
 	file.close()
+	file.open("TotMsg.txt", "w")
+	file.writeline(totmsg+1)                                             
+	file.close()
+end
 
+--WRITE DATA TO OLED DISPLAY
+function write_OLED()
+	--CLEAR SCREEN
+	disp:firstPage()
+	repeat until disp:nextPage() == false
+	--DISPLAY NEW DATA
 	disp:firstPage()
 	repeat
 		disp:drawStr(5, 10, OLEDlines[1])
@@ -43,12 +60,6 @@ function write_OLED() -- Write Display
 		disp:drawStr(5, 46, OLEDlines[4])
 		disp:drawStr(5, 56, ("Message # "..totmsg))
 	until disp:nextPage() == false
-	
-	--LOG NEW MESSAGE COUNT
-	file.open("TotMsg.txt", "w")
-	file.writeline(totmsg)                                             
-	file.close()
-   
 end
 
 ----------------
@@ -63,27 +74,15 @@ wifi.setmode(wifi.STATION)
 wifi.sta.config(routerUsername,routerPassword)
 srv=net.createServer(net.TCP)
 
-
 --SERVER CONTROL LOOP
-srv:listen(80,function(conn)
+srv:listen(routerPort,function(conn)
     conn:on("receive", function(client,request)
         local buf = ""
         local _, _, method, path, vars = string.find(request, "([A-Z]+) (.+)?(.+) HTTP")
-        local iGET = {}
         
-        if(method == nil)then
-            _, _, method, path = string.find(request, "([A-Z]+) (.+) HTTP")
-        end
-        
-        if (vars ~= nil)then
-			for k, v in string.gmatch(vars, "(%w+)=(%w+)&*") do
-                iGET[k] = v
-            end
-        end
-
 		--CONSTRUCT THE WEB PAGE
 		buf=buf.."<html>"
-		 buf=buf.."<center><h1>iOuija - The Original Talking Screen</h1>";  
+		buf=buf.."<center><h1>iOuija - The Original Talking Screen</h1>";  
         buf=buf..'<img src="https://scontent-ort2-1.xx.fbcdn.net/v/t1.0-9/17352496_869794783185970_3446150579443806505_n.jpg?oh=c20e7db481ac0470ebba8e8156258fa6&oe=595DF747" width="300">'
         buf=buf..'<form action="" target="" method="get">'
 		buf=buf..'Send a message to my iOuija screen:<br>'
@@ -91,20 +90,21 @@ srv:listen(80,function(conn)
 		buf=buf..'<input type="submit" value="Send">'
 		buf=buf..'</form>'
 		
-		        
-        
-        
-        --IF THERE IS A NEW MESSAGE, PROCESS IT
+		--IF THERE IS A NEW MESSAGE, PROCESS IT
         if (vars ~= nil) and (string.sub(vars, 1, 3)=="tex") then
 			str="empty"
 			str=string.sub(vars, 14)
 			str = string.gsub (str, "+", " ")
-			str = string.gsub (str, "%%(%x%x)", " ")  --This has to be fixed to properly render special chars
+			--WHY THE HELL DOES function(h) return string.char(tonumber(h,16)) end) FAIL?!?
+			str = string.gsub (str, "%%(%x%x)", " ") 
 			str = string.gsub (str, "\r\n", "\n")
-			strFileOutput=str
 			
-			--SLICE THE MESSAGE UP TO FIT THE 4-LINE OLED DISPLAY
-			--SMART LINE BREAKS WASTE SCREEN SPACE IMHO
+			--APPEND CURRENT MESSAGE CONTENT TO A FILE OF ALL MESSAGES
+			file.open("messages.txt","a")
+			file.writeline(str)
+			file.close()
+			
+			--SLICE THE MESSAGE UP TO FIT THE 4-LINE OLED DISPLAY  ("SMART" LINE BREAKS WASTE SCREEN SPACE IMHO)
 			for k=1,4 do
 				j=string.len(str)
 				if (j<21) then
@@ -115,33 +115,25 @@ srv:listen(80,function(conn)
 					str=string.sub(str, 21)
 				end
 			end
-			
-					
 			i=i+1
+			totalMessages()
 			write_OLED()
 			
-		--APPEND CURRENT MESSAGE TO A FILE OF MESSAGES
-		file.open("messages.txt","a")
-		file.writeline(strFileOutput)
-		file.close()
-			
-			
+			--CLEAR MESSAGE BUFFER
+			for k=1,4 do OLEDlines[k]="" end
 		end
 		
 		--MORE WEB PAGE CONSTRUCTION
-		buf=buf..'<br>I created iOuija as an interactive electronic art installation.'
+		buf=buf..'<p>I created iOuija as an interactive electronic art installation.'
 		buf=buf..'<br>What sort of 80 character messages will you send with 100% anonymity?'
 		buf=buf..'<br>In iOuija, YOU become the ghost in my machine.  Enjoy!'
 		buf=buf..'<br><br>Learn more about iOuija including how to build your own.'
-		buf=buf..'<br><a href="https://www.facebook.com/IOuija-867070323458416/">Join iOuija on Facebook</a>'
+		buf=buf..'<br><a href="https://github.com/nodeMCU-Fun/iOuija">Join iOuija on GitHub</a>'
 		buf=buf..'</center>'
 		buf=buf.."</html>"
 		
-		
-		
-		
-                
-        client:send(buf)	--RENDER THE WEB PAGE
+		--RENDER THE WEB PAGE
+		client:send(buf)	
         client:close()
         collectgarbage()
                 
