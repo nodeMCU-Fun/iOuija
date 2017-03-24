@@ -15,7 +15,6 @@ routerPassword = ""	--Router Password
 --CONSTANTS & VARIABLES
 sda = 1 		-- OLED SDA Pin 1=D1
 scl = 2 		-- OLED SCL Pin 2=D2
-i = 0			-- MULTI-USE COUNTER
 vars = " "		-- RAW ARGUMENTS SENT FROM WEB-PAGE
 totmsg = 0		-- COUNT OF MESSAGES RECEIVED 
 
@@ -94,8 +93,16 @@ srv:listen(routerPort,function(conn)
         if (vars ~= nil) and (string.sub(vars, 1, 3)=="tex") then
 			str="empty"
 			str=string.sub(vars, 14)
+			print(str)
 			str = string.gsub (str, "+", " ")
 			--WHY THE HELL DOES function(h) return string.char(tonumber(h,16)) end) FAIL?!?
+			--%21%40%23%24%25%5E%26*%28%29_%2B-%3D%7B%7D%7C%5B%5D%5C%3A%22%3B%27%3C%3E%3F%2C.%2F
+			str = string.gsub (str, "%%(21)", "!") 
+			str = string.gsub (str, "%%(26)", "&")
+			str = string.gsub (str, "%%(22)", '"') 
+			str = string.gsub (str, "%%(27)", "'") 
+			str = string.gsub (str, "%%(2C)", ",") 
+			str = string.gsub (str, "%%(3F)", "?") 
 			str = string.gsub (str, "%%(%x%x)", " ") 
 			str = string.gsub (str, "\r\n", "\n")
 			
@@ -103,6 +110,8 @@ srv:listen(routerPort,function(conn)
 			file.open("messages.txt","a")
 			file.writeline(str)
 			file.close()
+			youSent=str
+			buf=buf..'<br>You sent: "'..youSent..'"'
 			
 			--SLICE THE MESSAGE UP TO FIT THE 4-LINE OLED DISPLAY  ("SMART" LINE BREAKS WASTE SCREEN SPACE IMHO)
 			for k=1,4 do
@@ -115,7 +124,6 @@ srv:listen(routerPort,function(conn)
 					str=string.sub(str, 21)
 				end
 			end
-			i=i+1
 			totalMessages()
 			write_OLED()
 			
